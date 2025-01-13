@@ -102,25 +102,6 @@ class PathtrackingDataset(BaseDataset):
     def get_pathtracking_models(self):
         # Generate the random parameters for each function. 
         mus = torch.rand(self.n_functions, 1, device=self.device) * (self.mu_range[1] - self.mu_range[0]) + self.mu_range[0]
-
-        # Define a new function for the pathtracking discrete-time dynamics. 
-        def pathtracking(state, control, t_dif):
-            x = state[:,0].unsqueeze(1)
-            y = state[:,1].unsqueeze(1)
-            yaw = state[:,2].unsqueeze(1)
-            v = state[:,3].unsqueeze(1)
-            steer = control[:,0].unsqueeze(1)
-            accel = control[:,1].unsqueeze(1)
-
-            # Apply friction/drag to the velocity
-            v = v - mus*torch.log(v+1)
-
-            # update state variables
-            new_x = x + v * torch.cos(yaw) * t_dif
-            new_y = y + v * torch.sin(yaw) * t_dif
-            new_yaw = yaw + v / self.wheel_base * torch.tan(steer) * t_dif
-            new_v = v + accel * t_dif
-            return torch.concat([new_x, new_y, new_yaw, new_v], dim=1)
         
         # Define a new function for the pathtracking discrete-time dynamics. 
         def pathtracking_points(state, t_dif):
@@ -163,45 +144,3 @@ class PathtrackingDataset(BaseDataset):
         output = x_next - x_0[:,:,1:5] # change in states
 
         return output
-
-    def integrate_traj(self, model, x_0, n_samples):
-        """
-        Integrate the model from t_0 to t_f with initial condition x_0.
-        """
-        # # Generate random time differences for integration and bound them.
-        # t_dif = torch.rand((self.n_functions, n_samples, 1), dtype=self.dtype, device=self.device)
-        # t_dif = t_dif * (self.t_dif_range[1] - self.t_dif_range[0]) + self.t_dif_range[0]
-
-        # Generate random control inputs and bound them. 
-        steers = torch.rand((self.n_functions, n_samples, 1), dtype=self.dtype, device=self.device)
-        steers = steers * (self.steer_range[1] - self.steer_range[0]) + self.steer_range[0]
-        accels = torch.rand((self.n_functions, n_samples, 1), dtype=self.dtype, device=self.device)
-        accels = accels * (self.accel_range[1] - self.accel_range[0]) + self.accel_range[0]
-        ctrls = torch.cat([steers, accels], dim=2)
-        #ctrls = torch.rand((self.n_functions, n_samples, 2), dtype=self.dtype, device=self.device)
-        #ctrls = ctrls * (self.t_dif_range[1] - self.t_dif_range[0]) + self.t_dif_range[0] # TODO: FIX THIS TO BOUDN VIA CONTROLS
-
-        # initialize space for input/output states
-        x_in = torch.zeros(self.n_functions, n_samples, 4, device=self.device)
-        x_out = torch.zeros(self.n_functions, n_samples, 4, device=self.device)
-        x_in[:, 0, :] = x_0[:,:4]
-
-        # gather data
-        for i in range(n_samples):
-            x_now = x_in[:, i, :]
-
-            x_next = model(x_now, ctrls[:,i,:], self.t_dif)
-
-            x_dif = x_next - x_now
-
-            # Record input/output data. The output data is the
-            # CHANGE in state, not the next state itself. 
-            x_out[:, i, :] = x_dif
-            if i != n_samples-1:
-                x_in[:, i+1, :] = x_next
-
-        # stack the time diff data with the input data.
-        t_difs = torch.ones((self.n_functions, n_samples, 1), dtype=self.dtype, device=self.device) * self.t_dif
-        x_in = torch.cat([t_difs, x_in, ctrls], dim=2)
-
-        return x_in, x_out
