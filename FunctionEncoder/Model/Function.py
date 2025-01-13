@@ -10,32 +10,17 @@ from FunctionEncoder.Model.Architecture.CNN import CNN
 from FunctionEncoder.Model.Architecture.Euclidean import Euclidean
 from FunctionEncoder.Model.Architecture.MLP import MLP
 from FunctionEncoder.Model.Architecture.ParallelMLP import ParallelMLP
-from FunctionEncoder.Model.Architecture.FE_NeuralODE import FE_NeuralODE
+from FunctionEncoder.Model.Architecture.NeuralODE import NeuralODE
 
 
-class FunctionEncoder(torch.nn.Module):
-    """A function encoder learns basis functions/vectors over a Hilbert space.
-
-    A function encoder learns basis functions/vectors over a Hilbert space. 
-    Typically, this is a function space mapping to Euclidean vectors, but it can be any Hilbert space, IE probability distributions.
-    This class has a general purpose algorithm which supports both deterministic and stochastic data.
-    The only difference between them is the dataset used and the inner product definition.
-    This class supports two methods for computing the coefficients of the basis function, also called a representation:
-    1. "inner_product": It computes the inner product of the basis functions with the data via a Monte Carlo approximation.
-    2. "least_squares": This method computes the least squares solution in terms of vector operations. This typically trains faster and better. 
-    This class also supports the residuals method, which learns the average function in the dataset. The residuals/error of this approximation, 
-    for each function in the space, is learned via a function encoder. This tends to improve performance when the average function is not f(x) = 0. 
-    """
-
+class Function(torch.nn.Module):
+    
     def __init__(self,
                  input_size:tuple[int], 
                  output_size:tuple[int], 
                  data_type:str, 
-                 n_basis:int=100, 
                  model_type:Union[str, type]="MLP",
                  model_kwargs:dict=dict(),
-                 method:str="least_squares", 
-                 use_residuals_method:bool=False,  
                  regularization_parameter:float=1.0, # if you normalize your data, this is usually good
                  gradient_accumulation:int=1, # default: no gradient accumulation
                  optimizer=torch.optim.Adam,
@@ -68,22 +53,18 @@ class FunctionEncoder(torch.nn.Module):
         assert len(output_size) == 1, "Only 1D output supported for now"
         assert output_size[0] >= 1, "Output size must be at least 1"
         assert data_type in ["deterministic", "stochastic", "categorical"], f"Unknown data type: {data_type}"
-        super(FunctionEncoder, self).__init__()
+        super(Function, self).__init__()
         
         # hyperparameters
-        self.input_size = input_size
+        self.input_size = input_size # just for getting NODE to work
         self.output_size = output_size
-        self.n_basis = n_basis
-        self.method = method
         self.data_type = data_type
         
+        self.method = "inner_product"
+
         # models and optimizers
-        self.model = self._build(model_type, model_kwargs)
-        self.average_function = self._build(model_type, model_kwargs, average_function=True) if use_residuals_method else None
-        params = [*self.model.parameters()]
-        if self.average_function is not None:
-            params += [*self.average_function.parameters()]
-        self.opt = optimizer(params, **optimizer_kwargs) # usually ADAM with lr 1e-3
+        self.average_function = self._build(model_type, model_kwargs, average_function=True) 
+        self.opt = optimizer(self.average_function.parameters(), **optimizer_kwargs) # usually ADAM with lr 1e-3
 
         # regulation only used for LS method
         self.regularization_parameter = regularization_parameter
@@ -96,7 +77,7 @@ class FunctionEncoder(torch.nn.Module):
 
         # verify number of parameters
         n_params = sum([p.numel() for p in self.parameters()])
-        estimated_n_params = FunctionEncoder.predict_number_params(input_size=input_size, output_size=output_size, n_basis=n_basis, model_type=model_type, model_kwargs=model_kwargs, use_residuals_method=use_residuals_method)
+        estimated_n_params = Function.predict_number_params(input_size=input_size, output_size=output_size, n_basis=1, model_type=model_type, model_kwargs=model_kwargs, use_residuals_method=True)
         #assert n_params == estimated_n_params, f"Model has {n_params} parameters, but expected {estimated_n_params} parameters."
 
 
@@ -121,31 +102,31 @@ class FunctionEncoder(torch.nn.Module):
             if model_type == "MLP":
                 return MLP(input_size=self.input_size,
                            output_size=self.output_size,
-                           n_basis=self.n_basis,
-                           learn_basis_functions=not average_function,
+                           n_basis=1,
+                           learn_basis_functions=True,
+                           **model_kwargs)
+            if model_type == "NeuralODE":
+                return NeuralODE(input_size=self.input_size,
+                           output_size=self.output_size,
+                           n_basis=1,
+                           learn_basis_functions=True,
                            **model_kwargs)
             if model_type == "ParallelMLP":
                 return ParallelMLP(input_size=self.input_size,
                                    output_size=self.output_size,
-                                   n_basis=self.n_basis,
-                                   learn_basis_functions=not average_function,
-                                   **model_kwargs)
-            if model_type == "FE_NeuralODE":
-                return FE_NeuralODE(input_size=self.input_size,
-                                   output_size=self.output_size,
-                                   n_basis=self.n_basis,
-                                   learn_basis_functions=not average_function,
+                                   n_basis=1,
+                                   learn_basis_functions=True,
                                    **model_kwargs)
             elif model_type == "Euclidean":
                 return Euclidean(input_size=self.input_size,
                                  output_size=self.output_size,
-                                 n_basis=self.n_basis,
+                                 n_basis=1,
                                  **model_kwargs)
             elif model_type == "CNN":
                 return CNN(input_size=self.input_size,
                            output_size=self.output_size,
-                           n_basis=self.n_basis,
-                           learn_basis_functions=not average_function,
+                           n_basis=1,
+                           learn_basis_functions=True,
                            **model_kwargs)
             else:
                 raise ValueError(f"Unknown model type: {model_type}. Should be one of 'MLP', 'ParallelMLP', 'Euclidean', or 'CNN'")
@@ -153,64 +134,10 @@ class FunctionEncoder(torch.nn.Module):
             return model_type(input_size=self.input_size,
                               output_size=self.output_size,
                               n_basis=self.n_basis,
-                              learn_basis_functions=not average_function,
+                              learn_basis_functions=True,
                               **model_kwargs)
 
-    def compute_representation(self, 
-                               example_xs:torch.tensor, 
-                               example_ys:torch.tensor, 
-                               method:str="least_squares", 
-                               **kwargs) -> Tuple[torch.tensor, Union[torch.tensor, None]]:
-        """Computes the coefficients of the basis functions.
-
-        This method does the forward pass of the basis functions (and the average function if it exists) over the example data.
-        Then it computes the coefficients of the basis functions via a Monte Carlo integration of the inner product with the example data.
-        
-        Args:
-        example_xs: torch.tensor: The input data. Shape (n_example_datapoints, input_size) or (n_functions, n_example_datapoints, input_size)
-        example_ys: torch.tensor: The output data. Shape (n_example_datapoints, output_size) or (n_functions, n_example_datapoints, output_size)
-        method: str: "inner_product" or "least_squares". Determines how to compute the coefficients of the basis functions.
-        kwargs: dict: Additional kwargs to pass to the least squares method.
-
-        Returns:
-        torch.tensor: The coefficients of the basis functions. Shape (n_functions, n_basis) or (n_basis,) if n_functions=1. 
-        Union[torch.tensor, None]: The gram matrix if using least squares method. None otherwise.
-        """
-        
-        assert example_xs.shape[-len(self.input_size):] == self.input_size, f"example_xs must have shape (..., {self.input_size}). Expected {self.input_size}, got {example_xs.shape[-len(self.input_size):]}"
-        assert example_ys.shape[-len(self.output_size):] == self.output_size, f"example_ys must have shape (..., {self.output_size}). Expected {self.output_size}, got {example_ys.shape[-len(self.output_size):]}"
-        assert example_xs.shape[:-len(self.input_size)] == example_ys.shape[:-len(self.output_size)], f"example_xs and example_ys must have the same shape except for the last {len(self.input_size)} dimensions. Expected {example_xs.shape[:-len(self.input_size)]}, got {example_ys.shape[:-len(self.output_size)]}"
-
-        # if not in terms of functions, add a function batch dimension
-        reshaped = False
-        if len(example_xs.shape) - len(self.input_size) == 1:
-            reshaped = True
-            example_xs = example_xs.unsqueeze(0)
-            example_ys = example_ys.unsqueeze(0)
-
-        # optionally subtract average function if we are using residuals method
-        # we dont want to backprop to the average function. So we block grads. 
-        if self.average_function is not None:
-            with torch.no_grad():
-                example_y_hat_average = self.average_function.forward(example_xs)
-                example_ys = example_ys - example_y_hat_average
-
-        # compute representation
-        Gs = self.model.forward(example_xs) # forward pass of the basis functions
-        if method == "inner_product":
-            representation = self._compute_inner_product_representation(Gs, example_ys)
-            gram = None
-        elif method == "least_squares":
-            representation, gram = self._compute_least_squares_representation(Gs, example_ys, **kwargs)
-        else:
-            raise ValueError(f"Unknown method: {method}")
-
-        # reshape if necessary
-        if reshaped:
-            assert representation.shape[0] == 1, "Expected a single function batch dimension"
-            representation = representation.squeeze(0)
-        return representation, gram
-
+    
     def _deterministic_inner_product(self, 
                                      fs:torch.tensor, 
                                      gs:torch.tensor,) -> torch.tensor:
@@ -401,66 +328,6 @@ class FunctionEncoder(torch.nn.Module):
         """
         return self._norm(fs - gs, squared=squared)
 
-    def _compute_inner_product_representation(self, 
-                                              Gs:torch.tensor, 
-                                              example_ys:torch.tensor) -> torch.tensor:
-        """ Computes the coefficients via the inner product method.
-
-        Args:
-        Gs: torch.tensor: The basis functions. Shape (n_functions, n_datapoints, output_size, n_basis)
-        example_ys: torch.tensor: The output data. Shape (n_functions, n_datapoints, output_size)
-
-        Returns:
-        torch.tensor: The coefficients of the basis functions. Shape (n_functions, n_basis)
-        """
-        
-        assert len(Gs.shape)== 4, f"Expected Gs to have shape (f,d,m,k), got {Gs.shape}"
-        assert len(example_ys.shape) == 3, f"Expected example_ys to have shape (f,d,m), got {example_ys.shape}"
-        assert Gs.shape[0] == example_ys.shape[0], f"Expected Gs and example_ys to have the same number of functions, got {Gs.shape[0]} and {example_ys.shape[0]}"
-        assert Gs.shape[1] == example_ys.shape[1], f"Expected Gs and example_ys to have the same number of datapoints, got {Gs.shape[1]} and {example_ys.shape[1]}"
-        assert Gs.shape[2] == example_ys.shape[2], f"Expected Gs and example_ys to have the same output size, got {Gs.shape[2]} and {example_ys.shape[2]}"
-
-        # take inner product with Gs, example_ys
-        inner_products = self._inner_product(Gs, example_ys)
-        return inner_products
-
-    def _compute_least_squares_representation(self, 
-                                              Gs:torch.tensor, 
-                                              example_ys:torch.tensor, 
-                                              lambd:Union[float, type(None)]= None) -> Tuple[torch.tensor, torch.tensor]:
-        """ Computes the coefficients via the least squares method.
-        
-        Args:
-        Gs: torch.tensor: The basis functions. Shape (n_functions, n_datapoints, output_size, n_basis)
-        example_ys: torch.tensor: The output data. Shape (n_functions, n_datapoints, output_size)
-        lambd: float: The regularization parameter. None by default. If None, scales with 1/n_datapoints.
-        
-        Returns:
-        torch.tensor: The coefficients of the basis functions. Shape (n_functions, n_basis)
-        torch.tensor: The gram matrix. Shape (n_functions, n_basis, n_basis)
-        """
-        
-        assert len(Gs.shape)== 4, f"Expected Gs to have shape (f,d,m,k), got {Gs.shape}"
-        assert len(example_ys.shape) == 3, f"Expected example_ys to have shape (f,d,m), got {example_ys.shape}"
-        assert Gs.shape[0] == example_ys.shape[0], f"Expected Gs and example_ys to have the same number of functions, got {Gs.shape[0]} and {example_ys.shape[0]}"
-        assert Gs.shape[1] == example_ys.shape[1], f"Expected Gs and example_ys to have the same number of datapoints, got {Gs.shape[1]} and {example_ys.shape[1]}"
-        assert Gs.shape[2] == example_ys.shape[2], f"Expected Gs and example_ys to have the same output size, got {Gs.shape[2]} and {example_ys.shape[2]}"
-        assert lambd is None or lambd >= 0, f"Expected lambda to be non-negative or None, got {lambd}"
-
-        # set lambd to decrease with more data
-        if lambd is None:
-            lambd = 1e-3 # emprically this does well. We need to investigate if there is an optimal value here.
-
-        # compute gram
-        gram = self._inner_product(Gs, Gs)
-        gram_reg = gram + lambd * torch.eye(self.n_basis, device=gram.device)
-
-        # compute the matrix G^TF
-        ip_representation = self._inner_product(Gs, example_ys)
-
-        # Compute (G^TG)^-1 G^TF
-        ls_representation = torch.einsum("fkl,fl->fk", gram_reg.inverse(), ip_representation) # this is just batch matrix multiplication
-        return ls_representation, gram
 
     def predict(self, 
                 query_xs:torch.tensor,
@@ -478,23 +345,13 @@ class FunctionEncoder(torch.nn.Module):
         """
 
         assert len(query_xs.shape) == 2 + len(self.input_size), f"Expected xs to have shape (f,d,*n), got {query_xs.shape}"
-        assert len(representations.shape) == 2, f"Expected representations to have shape (f,k), got {representations.shape}"
-        assert query_xs.shape[0] == representations.shape[0], f"Expected xs and representations to have the same number of functions, got {query_xs.shape[0]} and {representations.shape[0]}"
 
-        # this is weighted combination of basis functions
-        Gs = self.model.forward(query_xs)
-        y_hats = torch.einsum("fdmk,fk->fdm", Gs, representations)
-        
         # optionally add the average function
         # it is allowed to be precomputed, which is helpful for training
         # otherwise, compute it
-        if self.average_function:
-            if precomputed_average_ys is not None:
-                average_ys = precomputed_average_ys
-            else:
-                average_ys = self.average_function.forward(query_xs)
-            y_hats = y_hats + average_ys
-        return y_hats
+
+        average_ys = self.average_function.forward(query_xs)[:,:,:,0]
+        return average_ys
 
     def predict_from_examples(self, 
                               example_xs:torch.tensor, 
@@ -525,8 +382,7 @@ class FunctionEncoder(torch.nn.Module):
         assert example_xs.shape[1] == example_xs.shape[1], f"Expected example_xs and example_ys to have the same number of datapoints, got {example_xs.shape[1]} and {example_ys.shape[1]}"
         assert example_xs.shape[0] == query_xs.shape[0], f"Expected example_xs and xs to have the same number of functions, got {example_xs.shape[0]} and {query_xs.shape[0]}"
 
-        representations, _ = self.compute_representation(example_xs, example_ys, method=method, **kwargs)
-        y_hats = self.predict(query_xs, representations)
+        y_hats = self.predict(query_xs, None)
         return y_hats
 
 
@@ -585,35 +441,15 @@ class FunctionEncoder(torch.nn.Module):
             example_xs, example_ys, query_xs, query_ys, _ = dataset.sample()
 
             # train average function, if it exists
-            if self.average_function is not None:
-                # predict averages
-                expected_yhats = self.average_function.forward(query_xs)
+            # predict averages
+            expected_yhats = self.predict_from_examples(example_xs, example_ys, query_xs)
 
-                # compute average function loss
-                average_function_loss = self._distance(expected_yhats, query_ys, squared=True).mean()
-                
-                # we only train average function to fit data in general, so block backprop from the basis function loss
-                expected_yhats = expected_yhats.detach()
-            else:
-                expected_yhats = None
+            # compute average function loss
+            average_function_loss = self._distance(expected_yhats, query_ys, squared=True).mean()
 
-            # approximate functions, compute error
-            representation, gram = self.compute_representation(example_xs, example_ys, method=self.method, **kwargs)
-            y_hats = self.predict(query_xs, representation, precomputed_average_ys=expected_yhats)
-            prediction_loss = self._distance(y_hats, query_ys, squared=True).mean()
-
-            # LS requires regularization since it does not care about the scale of basis
-            # so we force basis to move towards unit norm. They dont actually need to be unit, but this prevents them
-            # from going to infinity.
-            if self.method == "least_squares":
-                norm_loss = ((torch.diagonal(gram, dim1=1, dim2=2) - 1)**2).mean()
 
             # add loss components
-            loss = prediction_loss
-            if self.method == "least_squares":
-                loss = loss + self.regularization_parameter * norm_loss
-            if self.average_function is not None:
-                loss = loss + average_function_loss
+            loss = average_function_loss
             
             # backprop with gradient clipping
             loss.backward()
@@ -635,8 +471,6 @@ class FunctionEncoder(torch.nn.Module):
         params = {}
         params["input_size"] = self.input_size
         params["output_size"] = self.output_size
-        params["n_basis"] = self.n_basis
-        params["method"] = self.method
         params["model_type"] = self.model_type
         params["regularization_parameter"] = self.regularization_parameter
         for k, v in self.model_kwargs.items():
@@ -656,37 +490,22 @@ class FunctionEncoder(torch.nn.Module):
         Useful for ensuring all experiments use the same number of params"""
         n_params = 0
         if model_type == "MLP":
-            n_params += MLP.predict_number_params(input_size, output_size, n_basis, learn_basis_functions=True, **model_kwargs)
-            if use_residuals_method:
                 n_params += MLP.predict_number_params(input_size, output_size, n_basis,  learn_basis_functions=False, **model_kwargs)
+        elif model_type == "NeuralODE":
+                n_params += NeuralODE.predict_number_params(input_size, output_size, n_basis,  learn_basis_functions=False, **model_kwargs)
         elif model_type == "ParallelMLP":
-            n_params += ParallelMLP.predict_number_params(input_size, output_size, n_basis,  learn_basis_functions=True, **model_kwargs)
-            if use_residuals_method:
-                n_params += ParallelMLP.predict_number_params(input_size, output_size, n_basis, learn_basis_functions=False, **model_kwargs)
-        elif model_type == "FE_NeuralODE":
-            n_params += FE_NeuralODE.predict_number_params(input_size, output_size, n_basis,  learn_basis_functions=True, **model_kwargs)
-            if use_residuals_method:
                 n_params += ParallelMLP.predict_number_params(input_size, output_size, n_basis, learn_basis_functions=False, **model_kwargs)
         elif model_type == "Euclidean":
-            n_params += Euclidean.predict_number_params(output_size, n_basis)
-            if use_residuals_method:
                 n_params += Euclidean.predict_number_params(output_size, n_basis)
         elif model_type == "CNN":
-            n_params += CNN.predict_number_params(input_size, output_size, n_basis,  learn_basis_functions=True, **model_kwargs)
-            if use_residuals_method:
                 n_params += CNN.predict_number_params(input_size, output_size, n_basis, learn_basis_functions=False, **model_kwargs)
         elif isinstance(model_type, type):
-            n_params += model_type.predict_number_params(input_size, output_size, n_basis,  learn_basis_functions=True, **model_kwargs)
-            if use_residuals_method:
                 n_params += model_type.predict_number_params(input_size, output_size, n_basis, learn_basis_functions=False, **model_kwargs)
         else:
             raise ValueError(f"Unknown model type: '{model_type}'. Should be one of 'MLP', 'ParallelMLP', 'Euclidean', or 'CNN'")
 
         return n_params
 
-    def forward_basis_functions(self, xs:torch.tensor) -> torch.tensor:
-        """ Forward pass of the basis functions. """
-        return self.model.forward(xs)
 
     def forward_average_function(self, xs:torch.tensor) -> torch.tensor:
         """ Forward pass of the average function. """
