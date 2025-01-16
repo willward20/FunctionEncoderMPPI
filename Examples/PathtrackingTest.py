@@ -1,23 +1,19 @@
 import argparse
 import torch
 
-from datetime import datetime
 import matplotlib.pyplot as plt
 
-from FunctionEncoder import PathtrackingDataset, FunctionEncoder, ListCallback, TensorboardCallback, \
-    DistanceCallback
+from FunctionEncoder import PathtrackingDataset, FunctionEncoder
 
 # Parse the input arguments.
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_basis", type=int, default=11)
 parser.add_argument("--train_method", type=str, default="least_squares")
-parser.add_argument("--epochs", type=int, default=1_0000)
-parser.add_argument("--load_path", type=str, default=None)
+parser.add_argument("--epochs", type=int, default=1_000)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--residuals", action="store_true") # default = False 
 parser.add_argument("--parallel", action="store_true") # default = False
 args = parser.parse_args()
-
 
 # hyper params
 epochs = args.epochs
@@ -25,12 +21,7 @@ n_basis = args.n_basis
 device = "cuda" if torch.cuda.is_available() else "cpu"
 train_method = args.train_method
 seed = args.seed
-load_path = args.load_path
 residuals = args.residuals
-if load_path is None:
-    logdir = f"logs/pathtracking_example/{train_method}/{'shared_model' if not args.parallel else 'parallel_models'}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-else:
-    logdir = load_path
 arch = "FE_NeuralODE" 
 
 # create a dataset
@@ -46,18 +37,11 @@ model = FunctionEncoder(input_size=dataset.input_size,
                         use_residuals_method=residuals).to(device)
 print('Number of parameters:', sum(p.numel() for p in model.parameters()))
 
-# create callbacks
-cb1 = TensorboardCallback(logdir) # this one logs training data
-cb2 = DistanceCallback(dataset, tensorboard=cb1.tensorboard) # this one tests and logs the results
-callback = ListCallback([cb1, cb2])
+# load a pre-trained parameters
+path = "/home/wward/projects/FunctionEncoderMPPI/logs/pathtracking_example/least_squares/shared_model/2025-01-16_15-34-07"
+model.load_state_dict(torch.load(f"{path}/model.pth"))
 
-# train the model
-model.train_model(dataset, epochs=epochs, callback=callback)
-
-# save the model
-torch.save(model.state_dict(), f"{logdir}/model.pth")
-
-# plot
+# test model
 with torch.no_grad():
     n_plots = 9
     n_examples = 100
@@ -68,15 +52,17 @@ with torch.no_grad():
     fig, axs = plt.subplots(3, 3, figsize=(15, 10))
     for i in range(n_plots):
         ax = axs[i // 3, i % 3]
-        ax.quiver(
-            query_xs[i,:100,1].cpu(), query_xs[i,:100,2].cpu(), # x and y coordinates of vector
-            query_ys[i,:100,0].cpu(), query_ys[i,:100,1].cpu(), # x and y components of the vector
-            angles='xy', scale_units='xy', scale=1, label="True", width=0.005
+        ax.plot(
+            torch.abs(query_ys[i,:100,0].cpu() - y_hats_ls[i,:100,0].cpu()), label='x error'
         )
-        ax.quiver(
-            query_xs[i,:100,1].cpu(), query_xs[i,:100,2].cpu(), # x and y coordinates of vector
-            y_hats_ls[i,:100,0].cpu(), y_hats_ls[i,:100,1].cpu(), # x and y components of the vector
-            angles='xy', scale_units='xy', scale=1, label="LS", width=0.005, color='b'
+        ax.plot(
+            torch.abs(query_ys[i,:100,1].cpu() - y_hats_ls[i,:100,1].cpu()), label='y error'
+        )
+        ax.plot(
+            torch.abs(query_ys[i,:100,2].cpu() - y_hats_ls[i,:100,2].cpu()), label='yaw error'
+        )
+        ax.plot(
+            torch.abs(query_ys[i,:100,3].cpu() - y_hats_ls[i,:100,3].cpu()), label='v error'
         )
 
         if i == n_plots - 1:
@@ -84,7 +70,8 @@ with torch.no_grad():
         title = f"${info['mus'][i].item():.2f}$"
         ax.set_title(title)
 
+    # plt.show()
     plt.tight_layout()
-    plt.savefig(f"{logdir}/plot.png")
+    plt.savefig(f"{path}/state_errors.png")
     plt.clf()
 

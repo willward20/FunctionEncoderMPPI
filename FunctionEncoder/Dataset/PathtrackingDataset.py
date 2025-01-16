@@ -33,9 +33,9 @@ class PathtrackingDataset(BaseDataset):
         if n_functions is None and n_functions_per_sample is None:
             n_functions = 10
         if n_examples is None and n_examples_per_sample is None:
-            n_examples = 1000 #1000
+            n_examples = 100 #1000
         if n_queries is None and n_points_per_sample is None:
-            n_queries = 10000 #10000
+            n_queries = 1000 #10000
         
         super().__init__(input_size=(7,), # time, x, y, yaw, v, steer, accel
                          output_size=(4,), # x, y, yaw, v 
@@ -62,7 +62,6 @@ class PathtrackingDataset(BaseDataset):
                                 torch.tensor, # query outputs (10, 10000, 2)
                                 dict]: # dictionary of function parameters
         with torch.no_grad():
-            # Method 1: Generate a bunch of random points and propagate each once. 
             # Generate random states (including initial controls, but not including
             # time
             query_xs = self.get_input_points(self.n_queries)
@@ -72,8 +71,8 @@ class PathtrackingDataset(BaseDataset):
             pathtracking_models, mus = self.get_pathtracking_models()
 
             # Propagate the states forward using the dynamics.
-            query_ys = pathtracking_models(query_xs, self.n_queries) 
-            example_ys = pathtracking_models(example_xs, self.n_examples) 
+            query_ys = pathtracking_models(query_xs) 
+            example_ys = pathtracking_models(example_xs) 
 
             return example_xs, example_ys, query_xs, query_ys, {"mus":mus}
 
@@ -82,7 +81,7 @@ class PathtrackingDataset(BaseDataset):
         Return a tensor of inputs values (not including time) for each
         mu function and for each example/query.
         """
-        # create vector of time values (all the same)
+        # create vector of time values 
         t_difs = self.t_dif * torch.ones((self.n_functions, n_samples), dtype=self.dtype, device=self.device)
        
         # generate random states and control inputs
@@ -93,8 +92,8 @@ class PathtrackingDataset(BaseDataset):
         y = xs[:,:,1] * (self.pos_range[1] - self.pos_range[0]) + self.pos_range[0]
         yaw = xs[:,:,2] * (self.yaw_range[1] - self.yaw_range[0]) + self.yaw_range[0]
         v = xs[:,:,3] * (self.v_range[1] - self.v_range[0]) + self.v_range[0]
-        steer = xs[:,:,2] * (self.steer_range[1] - self.steer_range[0]) + self.steer_range[0]
-        accel = xs[:,:,3] * (self.accel_range[1] - self.accel_range[0]) + self.accel_range[0]
+        steer = xs[:,:,4] * (self.steer_range[1] - self.steer_range[0]) + self.steer_range[0]
+        accel = xs[:,:,5] * (self.accel_range[1] - self.accel_range[0]) + self.accel_range[0]
         
         # merge the time, inputs, and contorls back into one tensor
         return torch.stack([t_difs, x, y, yaw, v, steer, accel], dim=2)
@@ -130,10 +129,9 @@ class PathtrackingDataset(BaseDataset):
             # exit()
             return torch.stack([new_x, new_y, new_yaw, new_v], dim=2)
             
-        #return lambda x_0, n_samples: self.integrate_traj(pathtracking, x_0, n_samples), mus
-        return lambda x_0, n_samples: self.integrate_points(pathtracking_points, x_0, n_samples), mus
+        return lambda x_0: self.integrate_points(pathtracking_points, x_0), mus
     
-    def integrate_points(self, model, x_0, n_samples):
+    def integrate_points(self, model, x_0):
         """
         Integrate every point one step forward using the model. 
         x0: (n_func, n_samp, 4)
