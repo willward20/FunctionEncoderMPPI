@@ -148,9 +148,10 @@ class FE_NeuralODE(BaseArchitecture):
         return (t_dif / 6 * (k1.permute(2,0,1,3) + 2 * k2.permute(2,0,1,3) + 2 * k3.permute(2,0,1,3) + k4.permute(2,0,1,3))).permute(1,2,0,3)
     
     def rk4_actions(self, state_actions):
+        """ TODO: generalize the code for any number of states/actions"""
         t_dif = state_actions[:,:,0,:]
-        states = state_actions[:,:,1:5,:]
-        inputs = state_actions[:,:,5:,:]
+        states = state_actions[:,:,1:8,:]
+        inputs = state_actions[:,:,8:,:]
         # print("states: ", states.shape)
         # print("t_dif: ", t_dif.shape)
         # print("inputs: ", inputs.shape)
