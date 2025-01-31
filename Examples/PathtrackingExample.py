@@ -56,6 +56,7 @@ model.train_model(dataset, epochs=epochs, callback=callback)
 
 # save the model
 torch.save(model.state_dict(), f"{logdir}/model.pth")
+# exit()
 
 # plot
 with torch.no_grad():

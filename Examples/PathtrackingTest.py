@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 
 from FunctionEncoder import PathtrackingDataset, FunctionEncoder
 
+""" This script loads a pre-trained model, tests it on 
+    new queries, and plots the residuals. """
+
 # Parse the input arguments.
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_basis", type=int, default=11)
@@ -38,7 +41,7 @@ model = FunctionEncoder(input_size=dataset.input_size,
 print('Number of parameters:', sum(p.numel() for p in model.parameters()))
 
 # load a pre-trained parameters
-path = "/home/wward/projects/FunctionEncoderMPPI/logs/pathtracking_example/least_squares/shared_model/2025-01-16_15-34-07"
+path = "/home/wward/projects/FunctionEncoderMPPI/logs/pathtracking_example/least_squares/shared_model/2025-01-19_09-32-50"
 model.load_state_dict(torch.load(f"{path}/model.pth"))
 
 # test model
@@ -70,8 +73,8 @@ with torch.no_grad():
         title = f"${info['mus'][i].item():.2f}$"
         ax.set_title(title)
 
-    # plt.show()
-    plt.tight_layout()
-    plt.savefig(f"{path}/state_errors.png")
-    plt.clf()
+    plt.show()
+    # plt.tight_layout()
+    # plt.savefig(f"{path}/state_errors.png")
+    # plt.clf()
 
