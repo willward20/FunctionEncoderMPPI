@@ -3,7 +3,12 @@ import torch
 
 from datetime import datetime
 import matplotlib.pyplot as plt
+import os
+import sys
 
+# Add path to the FunctionEncoder package.
+home = os.path.expanduser('~')
+sys.path.append(f'{home}/FunctionEncoderMPPI')
 from FunctionEncoder import WarthogDataset, FunctionEncoder, ListCallback, TensorboardCallback, \
     DistanceCallback
 
@@ -11,7 +16,7 @@ from FunctionEncoder import WarthogDataset, FunctionEncoder, ListCallback, Tenso
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_basis", type=int, default=11)
 parser.add_argument("--train_method", type=str, default="least_squares")
-parser.add_argument("--epochs", type=int, default=1_0000)
+parser.add_argument("--epochs", type=int, default=1_00000)
 parser.add_argument("--load_path", type=str, default=None)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--residuals", action="store_true") # default = False 
@@ -34,7 +39,7 @@ else:
 arch = "MLP" 
 
 # create a dataset
-csv_path = "/home/wward/projects/FunctionEncoderMPPI/data/warthog_data/warty-warthog_velocity_controller-odom.csv"
+csv_path = "/home/arl/catkin_ws/src/mppi_rollouts/data/2025-02-28-10-58-11/warty-odom_processed-10hz-20.csv"
 dataset = WarthogDataset(csv_file=csv_path)
 
 # create the model
@@ -57,7 +62,7 @@ model.train_model(dataset, epochs=epochs, callback=callback)
 
 # save the model
 torch.save(model.state_dict(), f"{logdir}/model.pth")
-# exit()
+exit()
 
 # plot
 with torch.no_grad():
@@ -74,19 +79,7 @@ with torch.no_grad():
         torch.abs(query_ys[:,:100,1].cpu() - y_hats_ls[:,:100,1].cpu()).flatten(), label='y error'
     )
     plt.plot(
-        torch.abs(query_ys[:,:100,2].cpu() - y_hats_ls[:,:100,2].cpu()).flatten(), label='z error'
-    )
-    plt.plot(
-        torch.abs(query_ys[:,:100,3].cpu() - y_hats_ls[:,:100,3].cpu()).flatten(), label='qx error'
-    )
-    plt.plot(
-        torch.abs(query_ys[:,:100,4].cpu() - y_hats_ls[:,:100,4].cpu()).flatten(), label='qy error'
-    )
-    plt.plot(
-        torch.abs(query_ys[:,:100,5].cpu() - y_hats_ls[:,:100,5].cpu()).flatten(), label='qz error'
-    )
-    plt.plot(
-        torch.abs(query_ys[:,:100,6].cpu() - y_hats_ls[:,:100,6].cpu()).flatten(), label='qw error'
+        torch.abs(query_ys[:,:100,2].cpu() - y_hats_ls[:,:100,2].cpu()).flatten(), label='yaw error'
     )
     plt.legend()
     # plt.show()

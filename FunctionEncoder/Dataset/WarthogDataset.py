@@ -32,8 +32,8 @@ class WarthogDataset(BaseDataset):
         if n_queries is None and n_points_per_sample is None:
             n_queries = 1000 #10000
         
-        super().__init__(input_size=(14,), # time, (x,y,z) position, (x,y,z,w) orientation, linear (x,y,z), angular (x,y,z)
-                         output_size=(7,), # (x,y,z) position, (x,y,z,w) orientation 
+        super().__init__(input_size=(4,), # del_time, states (yaw), controls (lin x, ang z vel)
+                         output_size=(3,), # next states (x, y, yaw)
 
                          data_type="deterministic",
                          device=device,
@@ -45,14 +45,14 @@ class WarthogDataset(BaseDataset):
 
         # load data from CSV files
         data = self.process_csv(csv_file)
-        self.train_data = data[:20000,:]
-        self.test_data = data[20000:,:]
+        self.train_data = data[:10000,:]
+        self.test_data = data[10000:,:]
         # print(self.train_data.shape)
 
-    def sample(self) -> Tuple[  torch.tensor, # example inputs (1, 1000, 14)
-                                torch.tensor, # example outputs (1, 1000, 7)
-                                torch.tensor, # query inputs (1, 10000, 14)
-                                torch.tensor, # query outputs (1, 10000, 7)
+    def sample(self) -> Tuple[  torch.tensor, # example inputs (1, n_examples, input_size)
+                                torch.tensor, # example outputs (1, n_examples, output_size)
+                                torch.tensor, # query inputs (1, n_queries, input_size)
+                                torch.tensor, # query outputs (1, n_queries, output_size)
                                 dict]: # dictionary of function parameters
         with torch.no_grad():
             # Get random indices from the data tensor.
@@ -64,10 +64,10 @@ class WarthogDataset(BaseDataset):
             qu_subset = self.train_data[qu_indices]
 
             # Parse out the input and output data.
-            example_xs = ex_subset[:,:14].unsqueeze(dim=0)
-            example_ys = ex_subset[:,14:].unsqueeze(dim=0)
-            query_xs = qu_subset[:,:14].unsqueeze(dim=0)
-            query_ys = qu_subset[:,14:].unsqueeze(dim=0)
+            example_xs = ex_subset[:,:4].unsqueeze(dim=0)
+            example_ys = ex_subset[:,4:].unsqueeze(dim=0)
+            query_xs = qu_subset[:,:4].unsqueeze(dim=0)
+            query_ys = qu_subset[:,4:].unsqueeze(dim=0)
             
             # Sample saved data instead of generating new data. 
             # print("example_xs: ", example_xs.shape)
@@ -92,10 +92,10 @@ class WarthogDataset(BaseDataset):
             qu_subset = self.test_data[qu_indices]
 
             # Parse out the input and output data.
-            example_xs = ex_subset[:,:14].unsqueeze(dim=0)
-            example_ys = ex_subset[:,14:].unsqueeze(dim=0)
-            query_xs = qu_subset[:,:14].unsqueeze(dim=0)
-            query_ys = qu_subset[:,14:].unsqueeze(dim=0)
+            example_xs = ex_subset[:,:4].unsqueeze(dim=0)
+            example_ys = ex_subset[:,4:].unsqueeze(dim=0)
+            query_xs = qu_subset[:,:4].unsqueeze(dim=0)
+            query_ys = qu_subset[:,4:].unsqueeze(dim=0)
             
             # Sample saved data instead of generating new data. 
             # print("example_xs: ", example_xs.shape)
@@ -107,14 +107,19 @@ class WarthogDataset(BaseDataset):
 
 
     def process_csv(self, csv_file):
-        # Load CSV into a numpy array, then convert to torch tensor. 
+        # Load CSV into a numpy array. 
         array = np.loadtxt(csv_file, delimiter=',')
+        # Unwrap the yaw meaurements.
+        array[:, 3] = np.unwrap(array[:,3])
+        # Convert numpy array to torch tensor. 
         tensor = torch.tensor(array, device=self.device).to(torch.float32)
         # Convert the time stamps column to changes in time. 
         tensor[:-1, 0] = tensor[1:, 0] - tensor[:-1, 0]
-        # Get the "next" states from the data. 
-        next_states = tensor[1:, 1:8]
+        # Get the change in states from the data. 
+        del_states = tensor[1:, 1:4] - tensor[:-1, 1:4]
         # Remove the bottom row from the data. 
         new_tensor = tensor[:-1,:]
-        # Append the "next" states to the tensor. 
-        return torch.cat((new_tensor, next_states), dim=1)
+        # Remove the xPos and yPos from the data.
+        final_tensor = new_tensor[:,[0,3,4,5]]
+        # Append the change in states to the tensor
+        return torch.cat((final_tensor, del_states), dim=1)

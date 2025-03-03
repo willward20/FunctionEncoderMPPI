@@ -1,8 +1,13 @@
 from datetime import datetime
 
 import matplotlib.pyplot as plt
+import os
+import sys
 import torch
 
+# Add path to the FunctionEncoder package.
+home = os.path.expanduser('~')
+sys.path.append(f'{home}/FunctionEncoderMPPI')
 from FunctionEncoder import QuadraticDataset, FunctionEncoder, MSECallback, ListCallback, TensorboardCallback, \
     DistanceCallback
 

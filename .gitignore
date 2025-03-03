@@ -164,3 +164,12 @@ experimental_logs/
 data/
 
 pypi_instructions.md
+
+# Bash Stuff
+.bash_history
+.bashrc
+.bashrc.local
+.zshrc.local
+
+# .config stuff
+.config/catkin/verb_aliases/00-default-aliases.yaml
