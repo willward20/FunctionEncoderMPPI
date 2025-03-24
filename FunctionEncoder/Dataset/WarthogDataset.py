@@ -33,7 +33,7 @@ class WarthogDataset(BaseDataset):
             n_queries = 1000 #10000
         
         super().__init__(input_size=(4,), # del_time, states (yaw), controls (lin x, ang z vel)
-                         output_size=(3,), # next states (x, y, yaw)
+                         output_size=(3,), # change in states (x, y, yaw)
 
                          data_type="deterministic",
                          device=device,
