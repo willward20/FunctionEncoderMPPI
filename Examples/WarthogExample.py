@@ -9,7 +9,7 @@ import sys
 # Add path to the FunctionEncoder package.
 home = os.path.expanduser('~')
 sys.path.append(f'{home}/FunctionEncoderMPPI')
-from FunctionEncoder import WarthogDataset, FunctionEncoder, ListCallback, TensorboardCallback, \
+from FunctionEncoder import WarthogDataset, WarthogDatasetFull2D, FunctionEncoder, ListCallback, TensorboardCallback, \
     DistanceCallback
 
 # Parse the input arguments.
@@ -32,15 +32,19 @@ train_method = args.train_method
 seed = args.seed
 load_path = args.load_path
 residuals = args.residuals
+arch = "FE_NeuralODE" 
 if load_path is None:
-    logdir = f"logs/warthog_example/{train_method}/{'shared_model' if not args.parallel else 'parallel_models'}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    logdir = f"logs/warthog_example/{train_method}/{'shared_model' if not args.parallel else 'parallel_models'}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_{arch}"
 else:
     logdir = load_path
-arch = "MLP" 
 
 # create a dataset
-csv_path = "/home/arl/catkin_ws/src/mppi_rollouts/data/2025-02-28-10-58-11/warty-odom_processed-10hz-20.csv"
-dataset = WarthogDataset(csv_file=csv_path)
+path = "/home/arl/catkin_ws/src/mppi_rollouts/data/2025-03-22-10-35-47"
+odom_path = f"{path}/warty-odom_processed_full2D-20Hz-CLEAN.csv"
+cmdvel_path = f"{path}/warty-cmd_vel-CLEAN.csv"
+dataset = WarthogDatasetFull2D(odom_csv=odom_path, cmdvel_csv=cmdvel_path)
+# print("Created dataset.")
+# exit()
 
 # create the model
 model = FunctionEncoder(input_size=dataset.input_size,
@@ -62,7 +66,6 @@ model.train_model(dataset, epochs=epochs, callback=callback)
 
 # save the model
 torch.save(model.state_dict(), f"{logdir}/model.pth")
-exit()
 
 # plot
 with torch.no_grad():
@@ -81,8 +84,16 @@ with torch.no_grad():
     plt.plot(
         torch.abs(query_ys[:,:100,2].cpu() - y_hats_ls[:,:100,2].cpu()).flatten(), label='yaw error'
     )
+    plt.plot(
+        torch.abs(query_ys[:,:100,3].cpu() - y_hats_ls[:,:100,3].cpu()).flatten(), label='vx error'
+    )
+    plt.plot(
+        torch.abs(query_ys[:,:100,4].cpu() - y_hats_ls[:,:100,4].cpu()).flatten(), label='vy error'
+    )
+    plt.plot(
+        torch.abs(query_ys[:,:100,5].cpu() - y_hats_ls[:,:100,5].cpu()).flatten(), label='vyaw error'
+    )
     plt.legend()
-    # plt.show()
     plt.tight_layout()
     plt.savefig(f"{logdir}/plot.png")
     plt.clf()

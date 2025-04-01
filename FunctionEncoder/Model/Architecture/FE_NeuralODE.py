@@ -150,8 +150,8 @@ class FE_NeuralODE(BaseArchitecture):
     def rk4_actions(self, state_actions):
         """ TODO: generalize the code for any number of states/actions"""
         t_dif = state_actions[:,:,0,:]
-        states = state_actions[:,:,1:8,:]
-        inputs = state_actions[:,:,8:,:]
+        states = state_actions[:,:,1:7,:]#.unsqueeze(2) # unsqueeze if there's only one state
+        inputs = state_actions[:,:,7:,:]
         # print("states: ", states.shape)
         # print("t_dif: ", t_dif.shape)
         # print("inputs: ", inputs.shape)

@@ -6,6 +6,7 @@ from FunctionEncoder.Dataset.QuadraticDataset import QuadraticDataset
 from FunctionEncoder.Dataset.VanderpolDataset import VanderpolDataset
 from FunctionEncoder.Dataset.PathtrackingDataset import PathtrackingDataset
 from FunctionEncoder.Dataset.WarthogDataset import WarthogDataset
+from FunctionEncoder.Dataset.WarthogDatasetFull2D import WarthogDatasetFull2D
 from FunctionEncoder.Dataset.GaussianDonutDataset import GaussianDonutDataset
 from FunctionEncoder.Dataset.GaussianDataset import GaussianDataset
 from FunctionEncoder.Dataset.EuclideanDataset import EuclideanDataset
